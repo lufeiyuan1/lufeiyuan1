@@ -1,16 +1,19 @@
-## Hi there 👋
+# 你好，我是路非远 👋
 
-<!--
-**lufeiyuan1/lufeiyuan1** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+我是一名高中生，正在探索编程的世界。
 
-Here are some ideas to get you started:
+## 关于我
+- 🏫 目前在读高中
+- 🌱 最近在学：Python、网页制作
+- 🎯 目标：做出第一个自己的小项目
+- ⚡ 兴趣爱好：篮球、打游戏、听音乐
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+## 我正在学
+- Python 基础
+- HTML & CSS（做网页）
+
+## 联系我？（可选）
+- 暂时没有，先专心学习！
+
+---
+感谢你来看我的主页！✨
