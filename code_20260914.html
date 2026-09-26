@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>旅行时间轴 · 路线地图</title>
+<style>
+  :root{
+    --bg:#0a0e14;
+    --panel:#10151c;
+    --line:rgba(255,255,255,.08);
+    --text:#e6edf3;
+    --dim:#7d8590;
+    --c2024:#f0883e;
+    --c2025:#58a6ff;
+    --c2026:#3fb950;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    overflow:hidden;
+  }
+  .layout{display:flex;height:100vh;}
+
+  /* ============ 地图区 ============ */
+  .map-panel{
+    flex:0 0 42%;
+    background:radial-gradient(ellipse at 50% 40%,#141b25 0%,#0a0e14 70%);
+    border-right:1px solid var(--line);
+    display:flex;flex-direction:column;
+    position:relative;
+  }
+  .map-head{
+    padding:18px 22px 6px;
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  }
+  .map-head h2{margin:0;font-size:15px;font-weight:600;letter-spacing:.06em;}
+  .legend{display:flex;gap:12px;font-size:11px;color:var(--dim);}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;}
+.map-year-filter{display:flex;gap:5px;margin-left:auto;}
+.myf{font-size:10px;color:#8b949e;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:2px 8px;cursor:pointer;font-family:inherit;}
+.myf.active,.myf:hover{color:#fff;background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.3);}
+  .l24{background:var(--c2024);}
+  .l25{background:var(--c2025);}
+  .l26{background:var(--c2026);}
+  svg.map{flex:1;width:100%;height:100%;display:block;min-height:0;}
+
+  .routes line{stroke-width:1.5;stroke-linecap:round;}
+  .r24{stroke:var(--c2024);opacity:.42;}
+  .r25{stroke:var(--c2025);opacity:.42;}
+  .r26{stroke:var(--c2026);opacity:.42;}
+
+  .node circle{
+    stroke:#0a0e14;stroke-width:2;
+    transition:r .18s ease, filter .18s ease;
+  }
+  .node text{
+    font-size:10.5px;fill:#8b949e;
+    transition:fill .18s ease;
+    paint-order:stroke;
+  }
+  .node.y24 circle{fill:var(--c2024);}
+  .node.y25 circle{fill:var(--c2025);}
+  .node.y26 circle{fill:var(--c2026);}
+  .node.active circle{r:8;filter:drop-shadow(0 0 6px currentColor);}
+  .node.active text{fill:#fff;font-weight:600;}
+
+  .routes line.active-route{stroke-width:3.2;opacity:.95;filter:drop-shadow(0 0 4px currentColor);}
+  .trip.link-active{background:rgba(255,255,255,.075);border-left-color:rgba(255,255,255,.55);}
+  .trip.link-active::before{transform:translate(-50%,-50%) scale(1.65);box-shadow:0 0 12px currentColor;}
+  .trip{cursor:pointer;}
+  .node{cursor:pointer;}
+  .node:hover circle{r:7;filter:drop-shadow(0 0 5px currentColor);}
+  .home-node circle:first-child{fill:#fff;stroke:#0a0e14;stroke-width:2.5;}
+  .home-node .home-ring{fill:none;stroke:rgba(255,255,255,.28);stroke-width:1.2;stroke-dasharray:3 4;animation:homePulse 2.4s ease-in-out infinite;}
+  .home-node text{font-size:11px;fill:#fff;font-weight:700;paint-order:stroke;stroke:#0a0e14;stroke-width:3px;stroke-linejoin:round;}
+  @keyframes homePulse{0%,100%{opacity:.35;transform-origin:168.7px 312px;transform:scale(.92)}50%{opacity:.8;transform-origin:168.7px 312px;transform:scale(1.08)}}
+
+  /* ============ 时间轴区 ============ */
+  .tl-panel{
+    flex:1;overflow-y:auto;
+    padding:22px 26px 80px 20px;
+    scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.15) transparent;
+  }
+  .tl-panel::-webkit-scrollbar{width:8px;}
+  .tl-panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:4px;}
+
+  .year-head{
+    font-size:26px;font-weight:800;letter-spacing:.08em;
+    margin:26px 0 14px;opacity:.22;
+  }
+  .year-head:first-child{margin-top:0;}
+  .year-head span{font-size:11px;font-weight:500;letter-spacing:.1em;margin-left:10px;opacity:.9;}
+
+  .trip{
+    position:relative;
+    padding:9px 12px 9px 26px;
+    border-radius:8px;
+    cursor:default;
+    transition:background .15s;
+    border-left:2px solid transparent;
+  }
+  .trip:hover{background:rgba(255,255,255,.045);}
+  .trip::before{
+    content:"";position:absolute;left:9px;top:19px;
+    width:7px;height:7px;border-radius:50%;
+    transform:translate(-50%,-50%);
+    transition:box-shadow .18s, transform .18s;
+  }
+  .trip.y24::before{background:var(--c2024);}
+  .trip.y25::before{background:var(--c2025);}
+  .trip.y26::before{background:var(--c2026);}
+  .trip:hover::before{transform:translate(-50%,-50%) scale(1.5);box-shadow:0 0 10px currentColor;}
+  .trip.y24:hover{border-left-color:rgba(240,136,62,.6);}
+  .trip.y25:hover{border-left-color:rgba(88,166,255,.6);}
+  .trip.y26:hover{border-left-color:rgba(63,185,80,.6);}
+
+  .trip-head{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;}
+  .trip-head h3{margin:0;font-size:14.5px;font-weight:600;}
+  .trip-head time{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;}
+  .trip-head .range{
+    font-size:10px;color:var(--dim);
+    border:1px solid var(--line);border-radius:20px;
+    padding:1px 7px;font-variant-numeric:tabular-nums;
+  }
+
+  .city-theme{
+    margin:7px 0 8px 0;
+    padding-left:10px;
+    border-left:2px solid rgba(255,255,255,.28);
+    color:#c9d1d9;
+    font-size:11.5px;
+    line-height:1.6;
+    letter-spacing:.02em;
+  }
+  .city-theme::before{
+    content:"主题 · ";
+    color:#8b949e;
+    font-size:10px;
+  }
+  .spots{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;}
+  .chip{
+    font-size:11px;color:#a9b4c0;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.06);
+    border-radius:5px;padding:2px 7px;line-height:1.5;
+    transition:.15s;
+  }
+  .trip:hover .chip{background:rgba(255,255,255,.085);color:#d5dde5;}
+
+  
+  /* ============ 搜索筛选区 ============ */
+  .filter-bar{
+    position:sticky;top:0;z-index:6;
+    background:linear-gradient(180deg, var(--bg) 82%, rgba(10,14,20,0));
+    padding:14px 2px 12px;margin-bottom:10px;
+    border-bottom:1px solid var(--line);
+  }
+  .fb-row{display:flex;align-items:center;gap:10px;}
+  #spotSearch{
+    flex:1;min-width:0;
+    background:rgba(255,255,255,.05);
+    border:1px solid var(--line);border-radius:8px;
+    padding:8px 12px;color:var(--text);font-size:13px;outline:none;
+    transition:border-color .15s, background .15s;
+  }
+  #spotSearch::placeholder{color:#5c6773;}
+  #spotSearch:focus{border-color:rgba(88,166,255,.55);background:rgba(255,255,255,.07);}
+  .fb-count{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .fb-filters{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .ft{
+    font-size:11px;color:#a9b4c0;line-height:1.6;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.08);border-radius:20px;
+    padding:2px 10px;cursor:pointer;transition:.15s;font-family:inherit;
+  }
+  .ft i{font-style:normal;opacity:.55;font-size:10px;margin-left:2px;font-variant-numeric:tabular-nums;}
+  .ft:hover{color:#e6edf3;}
+  .ft.active{color:#fff;border-color:rgba(255,255,255,.38);background:rgba(255,255,255,.13);}
+  .ft.active[data-t="museum"]{border-color:#a371f7;color:#d0b7ff;background:rgba(163,113,247,.14);}
+  .ft.active[data-t="heritage"]{border-color:#d29922;color:#f0cd82;background:rgba(210,153,34,.14);}
+  .ft.active[data-t="nature"]{border-color:#3fb950;color:#8fd99b;background:rgba(63,185,80,.14);}
+  .ft.active[data-t="red"]{border-color:#f85149;color:#ffa198;background:rgba(248,81,73,.14);}
+  .ft.active[data-t="city"]{border-color:#39c5cf;color:#9be8ec;background:rgba(57,197,207,.14);}
+  .year-filters{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;}
+  .year-label{font-size:11px;color:var(--dim);margin-right:2px;}
+  .fy{font-size:11px;color:#a9b4c0;line-height:1.6;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:2px 10px;cursor:pointer;transition:.15s;font-family:inherit;}
+  .fy:hover{color:#e6edf3;}
+  .fy.active{color:#fff;border-color:rgba(255,255,255,.38);background:rgba(255,255,255,.13);}
+  .year-section-hide{display:none!important;}
+  .map-year-hide{display:none!important;}
+.trip-year-hide{display:none!important;}
+
+  .chip::before{
+    content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+    margin-right:5px;vertical-align:1px;
+  }
+  .chip[data-type="museum"]::before{background:#a371f7;}
+  .chip[data-type="heritage"]::before{background:#d29922;}
+  .chip[data-type="nature"]::before{background:#3fb950;}
+  .chip[data-type="red"]::before{background:#f85149;}
+  .chip[data-type="city"]::before{background:#39c5cf;}
+  .chip.hide{display:none;}
+  .chip.hit{
+    outline:1px solid rgba(240,185,66,.65);
+    background:rgba(240,185,66,.12);color:#fff;
+  }
+  .trip.no-match{opacity:.4;}
+  .trip.no-match .chip{display:none;}
+  .trip.no-match .spots{position:relative;padding-bottom:4px;}
+  .trip.no-match .spots::after{
+    content:"该行程无匹配景点";font-size:11px;color:var(--dim);
+  }
+
+  /* ============ 数据统计区 ============ */
+  .stats-panel{
+    background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.01));
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:16px 16px 8px;
+    margin-bottom:26px;
+  }
+  .stat-cards{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px;}
+  .stat-card{
+    background:rgba(255,255,255,.03);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:12px 6px 10px;
+    text-align:center;
+    position:relative;
+    overflow:hidden;
+  }
+  .stat-card::after{content:"";position:absolute;left:0;right:0;top:0;height:2px;}
+  .stat-card.s1::after{background:var(--c2024);}
+  .stat-card.s2::after{background:var(--c2025);}
+  .stat-card.s3::after{background:var(--c2026);}
+  .stat-card.s4::after{background:#d29922;}
+  .stat-card.s5::after{background:#bc8cff;}
+  .stat-card.s6::after{background:#8b949e;}
+  .stat-card b{display:block;font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15;}
+  .stat-card.s1 b{color:var(--c2024);}
+  .stat-card.s2 b{color:var(--c2025);}
+  .stat-card.s3 b{color:var(--c2026);}
+  .stat-card.s4 b{color:#d29922;}
+  .stat-card.s5 b{color:#bc8cff;}
+  .stat-card.s6 b{color:#8b949e;font-size:16px;padding:4px 0 4px;}
+  .stat-card span{font-size:11px;color:var(--dim);letter-spacing:.06em;}
+  .chart-title{font-size:12.5px;font-weight:600;color:#c9d1d9;margin:6px 2px 10px;display:flex;align-items:center;gap:7px;}
+  .chart-title::before{content:"";width:3px;height:12px;border-radius:2px;background:var(--c2025);}
+  .chart-title.t2::before{background:var(--c2026);}
+  .chart-box{height:150px;margin-bottom:14px;}
+  #chartProv{height:242px;}
+  .chart-fallback{
+    height:100%;display:flex;align-items:center;justify-content:center;
+    font-size:11.5px;color:var(--dim);
+    border:1px dashed rgba(255,255,255,.12);border-radius:8px;
+  }
+
+  /* ============ 兴趣演变 ============ */
+  .interest-panel{margin:0 0 26px;padding:16px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01));}
+  .interest-title{font-size:12.5px;font-weight:600;color:#c9d1d9;display:flex;align-items:center;gap:7px;}
+  .interest-title::before{content:"";width:3px;height:12px;border-radius:2px;background:#bc8cff;}
+  .interest-subtitle{margin:5px 0 14px 10px;font-size:11px;color:var(--dim);}
+  .interest-track{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  .interest-item{position:relative;padding:12px 12px 11px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.025);overflow:hidden;}
+  .interest-item::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;}
+  .i24::before{background:var(--c2024);}.i25::before{background:var(--c2025);}.i26::before{background:var(--c2026);}
+  .interest-year{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;letter-spacing:.08em;}
+  .interest-item h4{margin:4px 0 6px;font-size:13px;font-weight:650;}
+  .interest-item p{margin:0;min-height:52px;font-size:10.5px;line-height:1.65;color:#9aa5b1;}
+  .interest-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:9px;}
+  .interest-tags span{font-size:9.5px;color:#a9b4c0;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:2px 6px;}
+
+  @media (max-width:1100px){
+    .stat-cards{grid-template-columns:repeat(3,1fr);}
+  }
+
+  @media (max-width:860px){
+    body{overflow:auto;}
+    .layout{flex-direction:column;height:auto;}
+    .map-panel{flex:none;height:58vh;border-right:none;border-bottom:1px solid var(--line);}
+    .tl-panel{overflow:visible;padding:18px 16px 60px;}
+    .stat-cards{grid-template-columns:repeat(2,1fr);gap:8px;}
+    .interest-track{grid-template-columns:1fr;}
+    .interest-item p{min-height:0;}
+    .chart-box{height:170px;}
+    #chartProv{height:264px;}
+  }
+
+  .summary-panel{margin:26px 0 0;padding:18px 16px 16px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01));}
+  .summary-title{font-size:12.5px;font-weight:600;color:#c9d1d9;display:flex;align-items:center;gap:7px;}
+  .summary-title::before{content:"";width:3px;height:12px;border-radius:2px;background:#58a6ff;}
+  .summary-subtitle{margin:5px 0 16px 10px;font-size:11px;line-height:1.7;color:var(--dim);}
+  .summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .summary-block{padding:14px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.025);}
+  .summary-year{font-size:10px;color:var(--dim);letter-spacing:.08em;margin-bottom:6px;}
+  .summary-block h3{margin:0 0 8px;font-size:12px;color:#e6edf3;}
+  .summary-block p{margin:0;font-size:11px;line-height:1.75;color:#9da7b3;}
+  .summary-conclusion{margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(88,166,255,.06);font-size:11px;line-height:1.7;color:#a9b4c0;}
+  .summary-conclusion strong{color:#d6dee7;margin-right:10px;}
+  @media(max-width:760px){.summary-grid{grid-template-columns:1fr;}}
+
+</style>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ================= 地图 ================= -->
+  <aside class="map-panel">
+    <div class="map-head">
+      <h2>路线地图</h2>
+      <div class="legend">
+        <span><i class="l24"></i>2024</span>
+        <span><i class="l25"></i>2025</span>
+        <span><i class="l26"></i>2026</span>
+      </div>
+    </div>
+
+    <svg class="map" viewBox="0 0 600 780" preserveAspectRatio="xMidYMid meet">
+      <!-- 路线 -->
+      <g class="routes">
+        <!-- 所有行程均从安阳出发；同一行程的多城市分别从安阳发散 -->
+        <line x1="168.7" y1="312.0" x2="168.7" y2="302.5" class="r24" data-trip="0"/>
+        <line x1="168.7" y1="312.0" x2="246.2" y2="137.9" class="r24" data-trip="1"/>
+        <line x1="168.7" y1="312.0" x2="439.7" y2="542.1" class="r24" data-trip="2"/>
+        <line x1="168.7" y1="312.0" x2="337.8" y2="503.4" class="r24" data-trip="2"/>
+        <line x1="168.7" y1="312.0" x2="514.6" y2="49.3" class="r24" data-trip="3"/>
+
+        <line x1="168.7" y1="312.0" x2="174.0" y2="224.6" class="r25" data-trip="4"/>
+        <line x1="168.7" y1="312.0" x2="183.0" y2="212.0" class="r25" data-trip="4"/>
+        <line x1="168.7" y1="312.0" x2="166.4" y2="571.9" class="r25" data-trip="5"/>
+        <line x1="168.7" y1="312.0" x2="140.4" y2="378.0" class="r25" data-trip="6"/>
+        <line x1="168.7" y1="312.0" x2="133.2" y2="310.4" class="r25" data-trip="7"/>
+        <line x1="168.7" y1="312.0" x2="276.7" y2="173.8" class="r25" data-trip="8"/>
+        <line x1="168.7" y1="312.0" x2="295.8" y2="179.9" class="r25" data-trip="8"/>
+        <line x1="168.7" y1="312.0" x2="273.7" y2="289.4" class="r25" data-trip="9"/>
+        <line x1="168.7" y1="312.0" x2="175.2" y2="290.3" class="r25" data-trip="10"/>
+        <line x1="168.7" y1="312.0" x2="95.4" y2="384.1" class="r25" data-trip="11"/>
+        <line x1="168.7" y1="312.0" x2="114.1" y2="682.0" class="r25" data-trip="12"/>
+        <line x1="168.7" y1="312.0" x2="98.4" y2="696.4" class="r25" data-trip="12"/>
+        <line x1="168.7" y1="312.0" x2="121.3" y2="629.3" class="r25" data-trip="12"/>
+        <line x1="168.7" y1="312.0" x2="175.5" y2="335.1" class="r25" data-trip="13"/>
+
+        <line x1="168.7" y1="312.0" x2="165.6" y2="331.4" class="r26" data-trip="14"/>
+        <line x1="168.7" y1="312.0" x2="173.6" y2="269.8" class="r26" data-trip="15"/>
+        <line x1="168.7" y1="312.0" x2="192.3" y2="202.2" class="r26" data-trip="16"/>
+        <line x1="168.7" y1="312.0" x2="151.9" y2="352.4" class="r26" data-trip="17"/>
+      </g>
+
+      <!-- 节点 -->
+      <g class="nodes">
+        <!-- 旅行原点：安阳 -->
+        <g class="home-node">
+          <circle cx="168.7" cy="312.0" r="7"/><circle cx="168.7" cy="312.0" r="13" class="home-ring"/>
+          <text x="180" y="316">安阳 · 出发地</text>
+        </g>
+
+        <!-- 2024 -->
+        <g class="node y24" data-trip="0">
+          <circle cx="168.7" cy="302.5" r="4.5"/><text x="178" y="306.5">磁县</text>
+        </g>
+        <g class="node y24" data-trip="1">
+          <circle cx="246.2" cy="137.9" r="4.5"/><text x="255" y="142">北京</text>
+        </g>
+        <g class="node y24" data-trip="2">
+          <circle cx="439.7" cy="542.1" r="4.5"/><text x="449" y="546">上海</text>
+        </g>
+        <g class="node y24" data-trip="2">
+          <circle cx="337.8" cy="503.4" r="4.5"/><text x="347" y="507">南京</text>
+        </g>
+        <g class="node y24" data-trip="3">
+          <circle cx="514.6" cy="49.3" r="4.5"/><text x="524" y="53">沈阳</text>
+        </g>
+
+        <!-- 2025 -->
+        <g class="node y25" data-trip="4">
+          <circle cx="174.0" cy="224.6" r="4.5"/><text x="164" y="229" text-anchor="end">石家庄</text>
+        </g>
+        <g class="node y25" data-trip="4">
+          <circle cx="183" cy="212" r="4.5"/><text x="192" y="216">正定</text>
+        </g>
+        <g class="node y25" data-trip="5">
+          <circle cx="166.4" cy="571.9" r="4.5"/><text x="176" y="576">武汉</text>
+        </g>
+        <g class="node y25" data-trip="6">
+          <circle cx="140.4" cy="378.0" r="4.5"/><text x="150" y="382">郑州</text>
+        </g>
+        <g class="node y25" data-trip="7">
+          <circle cx="133.2" cy="310.4" r="4.5"/><text x="123" y="314" text-anchor="end">平顺</text>
+        </g>
+        <g class="node y25" data-trip="8">
+          <circle cx="276.7" cy="173.8" r="4.5"/><text x="267" y="178" text-anchor="end">天津</text>
+        </g>
+        <g class="node y25" data-trip="8">
+          <circle cx="295.8" cy="179.9" r="4.5"/><text x="305" y="184">滨海</text>
+        </g>
+        <g class="node y25" data-trip="9">
+          <circle cx="273.7" cy="289.4" r="4.5"/><text x="283" y="293">济南</text>
+        </g>
+        <g class="node y25" data-trip="10">
+          <circle cx="175.2" cy="290.3" r="4.5"/><text x="185" y="294">邯郸</text>
+        </g>
+        <g class="node y25" data-trip="11">
+          <circle cx="95.4" cy="384.1" r="4.5"/><text x="105" y="388">洛阳</text>
+        </g>
+        <g class="node y25" data-trip="12">
+          <circle cx="114.1" cy="682.0" r="4.5"/><text x="124" y="686">长沙</text>
+        </g>
+        <g class="node y25" data-trip="12">
+          <circle cx="98.4" cy="696.4" r="4.5"/><text x="89" y="700" text-anchor="end">韶山</text>
+        </g>
+        <g class="node y25" data-trip="12">
+          <circle cx="121.3" cy="629.3" r="4.5"/><text x="131" y="633">岳阳</text>
+        </g>
+        <g class="node y25" data-trip="13">
+          <circle cx="175.5" cy="335.1" r="4.5"/><text x="185" y="339">浚县</text>
+        </g>
+
+        <!-- 2026 -->
+        <g class="node y26" data-trip="14">
+          <circle cx="165.6" cy="331.4" r="4.5"/><text x="155" y="336" text-anchor="end">鹤壁</text>
+        </g>
+        <g class="node y26" data-trip="15">
+          <circle cx="173.6" cy="269.8" r="4.5"/><text x="183" y="274">邢台</text>
+        </g>
+        <g class="node y26" data-trip="16">
+          <circle cx="192.3" cy="202.2" r="4.5"/><text x="202" y="198">定州</text>
+        </g>
+        <g class="node y26" data-trip="17">
+          <circle cx="151.9" cy="352.4" r="4.5"/><text x="162" y="356">新乡</text>
+        </g>
+      </g>
+    </svg>
+  </aside>
+
+  <!-- ================= 时间轴 ================= -->
+  <main class="tl-panel">
+
+    
+    <div class="filter-bar">
+      <div class="fb-row">
+        <input type="search" id="spotSearch" placeholder="搜索景点，如：山、博物馆、书院…" autocomplete="off">
+        <span class="fb-count" id="spotCount">200 / 200</span>
+      </div>
+      <div class="year-filters" id="yearFilters">
+        <span class="year-label">年份</span>
+        <button class="fy active" data-year="all">全部</button>
+        <button class="fy" data-year="2024">2024</button>
+        <button class="fy" data-year="2025">2025</button>
+        <button class="fy" data-year="2026">2026</button>
+      </div>
+      <div class="fb-filters" id="fbFilters">
+        <button class="ft active" data-t="all">全部 <i>200</i></button>
+        <button class="ft" data-t="museum">博物馆 <i></i></button>
+        <button class="ft" data-t="heritage">古建古迹 <i></i></button>
+        <button class="ft" data-t="nature">自然山水 <i></i></button>
+        <button class="ft" data-t="red">红色记忆 <i></i></button>
+        <button class="ft" data-t="city">街市烟火 <i></i></button>
+      </div>
+    </div>
+
+
+    <!-- ================= 兴趣演变 ================= -->
+
+    <div class="year-head">2024<span>50 个景点</span></div>
+
+    <article class="trip y24" data-trip="0">
+      <div class="trip-head"><h3>磁县</h3><time>2024.5.1</time><span class="range">001–005</span></div>
+      <div class="city-theme">北朝墓葬与磁州窑：从高氏陵墓读懂邺城余韵</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">高欢墓</span><span class="chip" data-type="heritage" title="古建古迹">高洋墓</span><span class="chip" data-type="heritage" title="古建古迹">兰陵王墓</span>
+        <span class="chip" data-type="museum" title="博物馆">中国磁州窑博物馆</span><span class="chip" data-type="museum" title="博物馆">北朝考古博物馆</span>
+      </div>
+    </article>
+
+    <article class="trip y24" data-trip="1">
+      <div class="trip-head"><h3>北京</h3><time>2024.7.21–7.22</time><span class="range">006–012</span></div>
+      <div class="city-theme">皇家园林与坛庙古建：走进帝都的历史空间</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">颐和园</span><span class="chip" data-type="heritage" title="古建古迹">圆明园</span><span class="chip" data-type="nature" title="自然山水">景山</span>
+        <span class="chip" data-type="heritage" title="古建古迹">天坛</span><span class="chip" data-type="museum" title="博物馆">孔庙和国子监博物馆</span><span class="chip" data-type="heritage" title="古建古迹">雍和宫</span>
+        <span class="chip" data-type="heritage" title="古建古迹">地坛</span>
+      </div>
+    </article>
+
+    <article class="trip y24" data-trip="2">
+      <div class="trip-head"><h3>上海 ＋ 南京</h3><time>2024.8.1–8.4</time><span class="range">013–035</span></div>
+      <div class="city-theme">从海派都市到六朝古都：一场近代中国与古都文明之旅</div>
+      <div class="spots">
+        <span class="chip" data-type="red" title="红色记忆">四行仓库</span><span class="chip" data-type="red" title="红色记忆">中共一大会址</span><span class="chip" data-type="heritage" title="古建古迹">豫园</span>
+        <span class="chip" data-type="heritage" title="古建古迹">城隍庙</span><span class="chip" data-type="city" title="街市烟火">东方明珠</span><span class="chip" data-type="city" title="街市烟火">外滩</span>
+        <span class="chip" data-type="city" title="街市烟火">南京路</span><span class="chip" data-type="heritage" title="古建古迹">明孝陵</span><span class="chip" data-type="heritage" title="古建古迹">古鸡鸣寺</span>
+        <span class="chip" data-type="nature" title="自然山水">玄武湖</span><span class="chip" data-type="heritage" title="古建古迹">总统府</span><span class="chip" data-type="city" title="街市烟火">南京长江大桥</span>
+        <span class="chip" data-type="heritage" title="古建古迹">浦口火车站</span><span class="chip" data-type="nature" title="自然山水">牛首山</span><span class="chip" data-type="heritage" title="古建古迹">大报恩寺</span>
+        <span class="chip" data-type="city" title="街市烟火">老门东</span><span class="chip" data-type="heritage" title="古建古迹">秦状元府</span><span class="chip" data-type="heritage" title="古建古迹">乌衣巷</span>
+        <span class="chip" data-type="museum" title="博物馆">中国科举博物馆</span><span class="chip" data-type="heritage" title="古建古迹">夫子庙</span><span class="chip" data-type="red" title="红色记忆">中山陵</span>
+        <span class="chip" data-type="heritage" title="古建古迹">美龄宫</span><span class="chip" data-type="museum" title="博物馆">南京博物院</span>
+      </div>
+    </article>
+
+    <article class="trip y24" data-trip="3">
+      <div class="trip-head"><h3>沈阳</h3><time>2024.10.4–10.5</time><span class="range">036–050</span></div>
+      <div class="city-theme">盛京遗韵与近代城市：从清宫到东北工业记忆</div>
+      <div class="spots">
+        <span class="chip" data-type="city" title="街市烟火">小河沿早市</span><span class="chip" data-type="heritage" title="古建古迹">小南教堂</span><span class="chip" data-type="heritage" title="古建古迹">沈阳故宫</span>
+        <span class="chip" data-type="heritage" title="古建古迹">东三省总督府</span><span class="chip" data-type="museum" title="博物馆">沈阳金融博物馆</span><span class="chip" data-type="heritage" title="古建古迹">张氏帅府</span>
+        <span class="chip" data-type="museum" title="博物馆">辽宁省博物馆</span><span class="chip" data-type="city" title="街市烟火">中街</span><span class="chip" data-type="heritage" title="古建古迹">北陵</span>
+        <span class="chip" data-type="red" title="红色记忆">抗美援朝烈士陵园</span><span class="chip" data-type="museum" title="博物馆">中国工业博物馆</span><span class="chip" data-type="city" title="街市烟火">老北市</span>
+        <span class="chip" data-type="city" title="街市烟火">西塔街</span><span class="chip" data-type="city" title="街市烟火">中山路</span><span class="chip" data-type="city" title="街市烟火">太原街</span>
+      </div>
+    </article>
+
+    <div class="year-head">2025<span>110 个景点</span></div>
+
+    <article class="trip y25" data-trip="4">
+      <div class="trip-head"><h3>石家庄 ＋ 正定</h3><time>2025.1.25</time><span class="range">051–053</span></div>
+      <div class="city-theme">正定古城与省会新城：千年古建中的燕赵风貌</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">荣国府</span><span class="chip" data-type="heritage" title="古建古迹">隆兴寺</span><span class="chip" data-type="city" title="街市烟火">湾里庙</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="5">
+      <div class="trip-head"><h3>武汉</h3><time>2025.1.31–2.02</time><span class="range">054–070</span></div>
+      <div class="city-theme">江城烟火与辛亥风云：漫步长江两岸的武汉</div>
+      <div class="spots">
+        <span class="chip" data-type="city" title="街市烟火">武汉长江大桥</span><span class="chip" data-type="nature" title="自然山水">龟山</span><span class="chip" data-type="heritage" title="古建古迹">古琴台</span>
+        <span class="chip" data-type="heritage" title="古建古迹">归元禅寺</span><span class="chip" data-type="heritage" title="古建古迹">晴川阁</span><span class="chip" data-type="museum" title="博物馆">辛亥革命博物院</span>
+        <span class="chip" data-type="city" title="街市烟火">粮道街</span><span class="chip" data-type="city" title="街市烟火">昙华林</span><span class="chip" data-type="heritage" title="古建古迹">黄鹤楼</span>
+        <span class="chip" data-type="city" title="街市烟火">户部巷</span><span class="chip" data-type="heritage" title="古建古迹">古德寺</span><span class="chip" data-type="city" title="街市烟火">咸安坊</span>
+        <span class="chip" data-type="heritage" title="古建古迹">江汉关</span><span class="chip" data-type="city" title="街市烟火">江汉路</span><span class="chip" data-type="heritage" title="古建古迹">武汉大学</span>
+        <span class="chip" data-type="museum" title="博物馆">湖北省博物馆</span><span class="chip" data-type="city" title="街市烟火">红墙</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="6">
+      <div class="trip-head"><h3>郑州</h3><time>2025.3.29</time><span class="range">071–076</span></div>
+      <div class="city-theme">中原都会的古今交汇：从河南文明到现代城市</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">大观音寺</span><span class="chip" data-type="museum" title="博物馆">河南博物院</span><span class="chip" data-type="red" title="红色记忆">二七塔</span>
+        <span class="chip" data-type="city" title="街市烟火">油化厂</span><span class="chip" data-type="city" title="街市烟火">郑州东站</span><span class="chip" data-type="city" title="街市烟火">大玉米</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="7">
+      <div class="trip-head"><h3>平顺</h3><time>2025.4.5</time><span class="range">077–084</span></div>
+      <div class="city-theme">太行深山古建群：寻找唐宋木构遗存</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">龙门寺</span><span class="chip" data-type="heritage" title="古建古迹">夏禹神祠</span><span class="chip" data-type="heritage" title="古建古迹">回龙寺</span>
+        <span class="chip" data-type="heritage" title="古建古迹">淳化寺</span><span class="chip" data-type="heritage" title="古建古迹">佛头寺</span><span class="chip" data-type="heritage" title="古建古迹">大云院</span>
+        <span class="chip" data-type="heritage" title="古建古迹">天台庵</span><span class="chip" data-type="heritage" title="古建古迹">原起寺</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="8">
+      <div class="trip-head"><h3>天津 ＋ 滨海新区</h3><time>2025.5.2–5.3</time><span class="range">085–104</span></div>
+      <div class="city-theme">租界风貌与津门烟火：近代天津的城市切片</div>
+      <div class="spots">
+        <span class="chip" data-type="museum" title="博物馆">国家海洋博物馆</span><span class="chip" data-type="city" title="街市烟火">意式风情街</span><span class="chip" data-type="city" title="街市烟火">滨江道</span>
+        <span class="chip" data-type="heritage" title="古建古迹">西开教堂</span><span class="chip" data-type="heritage" title="古建古迹">五大道</span><span class="chip" data-type="city" title="街市烟火">小白楼</span>
+        <span class="chip" data-type="heritage" title="古建古迹">瓷房子</span><span class="chip" data-type="heritage" title="古建古迹">张学良故居</span><span class="chip" data-type="heritage" title="古建古迹">张爱玲旧居</span>
+        <span class="chip" data-type="heritage" title="古建古迹">张园</span><span class="chip" data-type="heritage" title="古建古迹">静园</span><span class="chip" data-type="city" title="街市烟火">西北角</span>
+        <span class="chip" data-type="city" title="街市烟火">天津之眼</span><span class="chip" data-type="heritage" title="古建古迹">大悲禅院</span><span class="chip" data-type="heritage" title="古建古迹">李叔同故居</span>
+        <span class="chip" data-type="city" title="街市烟火">狮子林桥</span><span class="chip" data-type="city" title="街市烟火">古文化街</span><span class="chip" data-type="heritage" title="古建古迹">天后宫</span>
+        <span class="chip" data-type="city" title="街市烟火">津湾广场</span><span class="chip" data-type="city" title="街市烟火">世纪钟</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="9">
+      <div class="trip-head"><h3>济南</h3><time>2025.6.7–6.8</time><span class="range">105–119</span></div>
+      <div class="city-theme">泉水与老城：在泉城烟火中寻找济南的城市性格</div>
+      <div class="spots">
+        <span class="chip" data-type="nature" title="自然山水">千佛山</span><span class="chip" data-type="nature" title="自然山水">大明湖</span><span class="chip" data-type="heritage" title="古建古迹">铁公祠</span>
+        <span class="chip" data-type="heritage" title="古建古迹">历下亭</span><span class="chip" data-type="nature" title="自然山水">五龙潭</span><span class="chip" data-type="nature" title="自然山水">趵突泉</span>
+        <span class="chip" data-type="city" title="街市烟火">泉城广场</span><span class="chip" data-type="nature" title="自然山水">黑虎泉</span><span class="chip" data-type="red" title="红色记忆">解放阁</span>
+        <span class="chip" data-type="city" title="街市烟火">宽厚里</span><span class="chip" data-type="nature" title="自然山水">珍珠泉</span><span class="chip" data-type="city" title="街市烟火">芙蓉街</span>
+        <span class="chip" data-type="nature" title="自然山水">百花洲</span><span class="chip" data-type="heritage" title="古建古迹">超然楼</span><span class="chip" data-type="museum" title="博物馆">山东博物馆</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="10">
+      <div class="trip-head"><h3>邯郸</h3><time>2025.7.12</time><span class="range">120–125</span></div>
+      <div class="city-theme">赵都遗韵与成语之城：穿行三千年燕赵历史</div>
+      <div class="spots">
+        <span class="chip" data-type="nature" title="自然山水">赵苑公园</span><span class="chip" data-type="heritage" title="古建古迹">学步桥</span><span class="chip" data-type="heritage" title="古建古迹">丛台</span>
+        <span class="chip" data-type="museum" title="博物馆">邯郸市博物馆</span><span class="chip" data-type="city" title="街市烟火">美乐城</span><span class="chip" data-type="city" title="街市烟火">邯郸道</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="11">
+      <div class="trip-head"><h3>洛阳</h3><time>2025.7.19–7.20</time><span class="range">126–135</span></div>
+      <div class="city-theme">千年帝都与佛教石窟：追寻洛阳的古都文明</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">白马寺</span><span class="chip" data-type="heritage" title="古建古迹">关林</span><span class="chip" data-type="heritage" title="古建古迹">龙门石窟</span>
+        <span class="chip" data-type="museum" title="博物馆">洛阳古墓博物馆</span><span class="chip" data-type="museum" title="博物馆">天子驾六博物馆</span><span class="chip" data-type="museum" title="博物馆">洛阳博物馆</span>
+        <span class="chip" data-type="city" title="街市烟火">洛邑古城</span><span class="chip" data-type="heritage" title="古建古迹">丽景门</span><span class="chip" data-type="heritage" title="古建古迹">应天门</span>
+        <span class="chip" data-type="heritage" title="古建古迹">明堂天堂</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="12">
+      <div class="trip-head"><h3>长沙 ＋ 韶山 ＋ 岳阳</h3><time>2025.8.1–8.3</time><span class="range">136–157</span></div>
+      <div class="city-theme">湖湘山水与近现代记忆：从长沙到韶山、岳阳</div>
+      <div class="spots">
+        <span class="chip" data-type="nature" title="自然山水">岳麓山</span><span class="chip" data-type="heritage" title="古建古迹">爱晚亭</span><span class="chip" data-type="heritage" title="古建古迹">岳麓书院</span>
+        <span class="chip" data-type="museum" title="博物馆">隆平水稻博物馆</span><span class="chip" data-type="museum" title="博物馆">湖南博物院</span><span class="chip" data-type="city" title="街市烟火">黄兴路</span>
+        <span class="chip" data-type="city" title="街市烟火">南门口</span><span class="chip" data-type="heritage" title="古建古迹">杜甫江阁</span><span class="chip" data-type="red" title="红色记忆">毛泽东同志纪念馆</span>
+        <span class="chip" data-type="heritage" title="古建古迹">毛氏宗祠</span><span class="chip" data-type="red" title="红色记忆">铜像广场</span><span class="chip" data-type="red" title="红色记忆">南岸私塾</span>
+        <span class="chip" data-type="red" title="红色记忆">毛泽东同志故居</span><span class="chip" data-type="red" title="红色记忆">滴水洞</span><span class="chip" data-type="red" title="红色记忆">橘子洲</span>
+        <span class="chip" data-type="heritage" title="古建古迹">古开福寺</span><span class="chip" data-type="heritage" title="古建古迹">中山亭</span><span class="chip" data-type="city" title="街市烟火">潮宗街</span>
+        <span class="chip" data-type="city" title="街市烟火">太平老街</span><span class="chip" data-type="city" title="街市烟火">坡子街</span><span class="chip" data-type="heritage" title="古建古迹">岳阳楼</span>
+        <span class="chip" data-type="heritage" title="古建古迹">慈氏塔</span>
+      </div>
+    </article>
+
+    <article class="trip y25" data-trip="13">
+      <div class="trip-head"><h3>浚县</h3><time>2025.9.27</time><span class="range">158–160</span></div>
+      <div class="city-theme">大伾古城与运河遗韵：漫步豫北千年古城</div>
+      <div class="spots">
+        <span class="chip" data-type="nature" title="自然山水">大伾山</span><span class="chip" data-type="heritage" title="古建古迹">浚县古城</span><span class="chip" data-type="heritage" title="古建古迹">大运河永济渠</span>
+      </div>
+    </article>
+
+    <div class="year-head">2026<span>40 个景点</span></div>
+
+    <article class="trip y26" data-trip="14">
+      <div class="trip-head"><h3>鹤壁</h3><time>2026.4.5</time><span class="range">161–167</span></div>
+      <div class="city-theme">鹤壁城市漫步：从鹿台遗踪到现代城市生活</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">鹿台阁</span><span class="chip" data-type="city" title="街市烟火">会展中心</span><span class="chip" data-type="nature" title="自然山水">桃园公园</span>
+        <span class="chip" data-type="nature" title="自然山水">樱花园</span><span class="chip" data-type="city" title="街市烟火">鹤壁市青少年宫</span><span class="chip" data-type="city" title="街市烟火">鹤煤集团</span>
+        <span class="chip" data-type="city" title="街市烟火">新世纪广场</span>
+      </div>
+    </article>
+
+    <article class="trip y26" data-trip="15">
+      <div class="trip-head"><h3>邢台</h3><time>2026.7.23</time><span class="range">168–177</span></div>
+      <div class="city-theme">古邢州的城市肌理：在开元寺与老城街巷间漫步</div>
+      <div class="spots">
+        <span class="chip" data-type="nature" title="自然山水">达活泉公园</span><span class="chip" data-type="heritage" title="古建古迹">豫让文化园</span><span class="chip" data-type="heritage" title="古建古迹">大开元寺</span>
+        <span class="chip" data-type="museum" title="博物馆">邢台博物馆</span><span class="chip" data-type="heritage" title="古建古迹">天宁寺</span><span class="chip" data-type="heritage" title="古建古迹">布袋院</span>
+        <span class="chip" data-type="city" title="街市烟火">好南关</span><span class="chip" data-type="heritage" title="古建古迹">火神庙</span><span class="chip" data-type="city" title="街市烟火">角楼广场</span>
+        <span class="chip" data-type="heritage" title="古建古迹">清风楼</span>
+      </div>
+    </article>
+
+    <article class="trip y26" data-trip="16">
+      <div class="trip-head"><h3>定州</h3><time>2026.8.16</time><span class="range">178–190</span></div>
+      <div class="city-theme">中山古都与宋代遗韵：一日读懂定州千年城史</div>
+      <div class="spots">
+        <span class="chip" data-type="heritage" title="古建古迹">晏阳初旧居</span><span class="chip" data-type="museum" title="博物馆">定州博物馆</span><span class="chip" data-type="heritage" title="古建古迹">南城门</span>
+        <span class="chip" data-type="heritage" title="古建古迹">开元寺塔</span><span class="chip" data-type="city" title="街市烟火">崇文街</span><span class="chip" data-type="heritage" title="古建古迹">贡院</span>
+        <span class="chip" data-type="heritage" title="古建古迹">定州署</span><span class="chip" data-type="heritage" title="古建古迹">文庙</span><span class="chip" data-type="heritage" title="古建古迹">清真寺</span>
+        <span class="chip" data-type="heritage" title="古建古迹">中山汉墓</span><span class="chip" data-type="heritage" title="古建古迹">大道观玉皇殿</span><span class="chip" data-type="nature" title="自然山水">众春园</span>
+        <span class="chip" data-type="city" title="街市烟火">宋街</span>
+      </div>
+    </article>
+
+    <article class="trip y26" data-trip="17">
+      <div class="trip-head"><h3>新乡</h3><time>2026.8.30</time><span class="range">191–200</span></div>
+      <div class="city-theme">卫水古城与平原烟火：寻找新乡的地方生活</div>
+      <div class="spots">
+        <span class="chip" data-type="nature" title="自然山水">平原公园</span><span class="chip" data-type="nature" title="自然山水">卫河公园</span><span class="chip" data-type="city" title="街市烟火">北关大街</span>
+        <span class="chip" data-type="heritage" title="古建古迹">金龙四大王庙</span><span class="chip" data-type="red" title="红色记忆">平原省委旧址</span><span class="chip" data-type="heritage" title="古建古迹">七世同居坊</span>
+        <span class="chip" data-type="museum" title="博物馆">平原博物院</span><span class="chip" data-type="nature" title="自然山水">牧野公园</span><span class="chip" data-type="city" title="街市烟火">三胖</span>
+        <span class="chip" data-type="heritage" title="古建古迹">关帝庙</span>
+      </div>
+    </article>
+
+    <section class="stats-panel">
+      <div class="stat-cards">
+        <div class="stat-card s1"><b>18</b><span>次行程</span></div>
+        <div class="stat-card s3"><b>11</b><span>个省市</span></div>
+        <div class="stat-card s4"><b>3</b><span>年旅程</span></div>
+        <div class="stat-card s2"><b>200</b><span>个景点</span></div>
+        <div class="stat-card s5"><b>30</b><span>累计旅行天数</span></div>
+        <div class="stat-card s6"><b>7000</b><span>累计花销（元）</span></div>
+      </div>
+      <div class="chart-title">每年分布 · 景点数与行程</div>
+      <div id="chartYear" class="chart-box"><div class="chart-fallback">图表组件未加载，请联网后刷新</div></div>
+      <div class="chart-title t2">省份分布 · 按景点数</div>
+      <div id="chartProv"><div class="chart-fallback">图表组件未加载，请联网后刷新</div></div>
+    </section>
+
+    <!-- ================= 兴趣演变 ================= -->
+    <section class="interest-panel">
+      <div class="interest-title">兴趣演变 · 从远途观光到近邻漫步</div>
+      <div class="interest-subtitle">按年份统计 200 个景点的类型构成，看关注点如何迁移</div>
+      <div class="interest-track">
+        <div class="interest-item i24">
+          <div class="interest-year">2024 · 4 次行程</div>
+          <h4>远途初探 · 历史名胜</h4>
+          <p>足迹远至北京、上海、沈阳，偏爱帝王陵墓、皇家园林与古都地标，以「首次到访」的经典历史名胜打开旅程。</p>
+          <div class="interest-tags"><span>古建古迹 48%</span><span>街市烟火 22%</span><span>博物馆 16%</span></div>
+        </div>
+        <div class="interest-item i25">
+          <div class="interest-year">2025 · 10 次行程</div>
+          <h4>深度文化 · 城市烟火</h4>
+          <p>最密集的一年：既深入平顺深山寻访唐宋木构、洛阳礼佛，也穿梭武汉、天津的街巷市井，红色记忆与湖湘人文并行。</p>
+          <div class="interest-tags"><span>古建古迹 45%</span><span>街市烟火 28%</span><span>博物馆 10%</span></div>
+        </div>
+        <div class="interest-item i26">
+          <div class="interest-year">2026 · 4 次行程</div>
+          <h4>回归近邻 · 城市漫步</h4>
+          <p>目的地收拢到安阳周边一两百公里，多单日往返，在古城肌理与日常公园间从容漫步，自然山水占比明显上升。</p>
+          <div class="interest-tags"><span>古建古迹 48%</span><span>街市烟火 25%</span><span>自然山水 18%</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 旅行风格总结 ================= -->
+    <section class="summary-panel">
+      <div class="summary-title">旅行风格总结 · 你的旅行画像</div>
+      <div class="summary-subtitle">基于三年 18 次行程、30 个旅行日、200 个景点的整体复盘</div>
+      <div class="summary-grid">
+        <div class="summary-block">
+          <div class="summary-year">出行节奏</div>
+          <h3>高频 · 短途 · 说走就走</h3>
+          <p>三年 18 次行程、30 个旅行日，平均每次不到两天，其中 10 次为单日往返；2026 年起周末短途成为绝对主力。</p>
+        </div>
+        <div class="summary-block">
+          <div class="summary-year">主题偏好</div>
+          <h3>古建为骨 · 烟火为肉</h3>
+          <p>古建古迹占全部景点 46%，是贯穿三年的主线；街市烟火 26% 居次，博物馆 11%；自然山水从 6% 升至 18%，逐年走高。</p>
+        </div>
+        <div class="summary-block">
+          <div class="summary-year">目的地策略</div>
+          <h3>以安阳为圆心的辐射圈</h3>
+          <p>2024 年以远途大城开疆，2025 年向中部名城铺开，2026 年回到豫北冀南近邻城市深耕——半径收窄，密度提高。</p>
+        </div>
+      </div>
+      <div class="summary-conclusion"><strong>一句话总结</strong>你是一个「历史浓度高、出行节奏快」的周末型城市漫游者：以古建古迹为精神主线，用街市烟火做调味，从远途大城渐次回归家门口，越走越从容。</div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  const trips  = document.querySelectorAll('.trip');
+  const nodes  = document.querySelectorAll('.node');
+
+  trips.forEach(t => {
+    t.addEventListener('mouseenter', () => {
+      const id = t.dataset.trip;
+      nodes.forEach(n => n.classList.toggle('active', n.dataset.trip === id));
+    });
+    t.addEventListener('mouseleave', () => {
+      nodes.forEach(n => n.classList.remove('active'));
+    });
+  });
+
+  
+  /* ===== 景点搜索 / 类型 / 年份筛选 ===== */
+  (function(){
+    var input = document.getElementById('spotSearch');
+    var countEl = document.getElementById('spotCount');
+    var chips = Array.prototype.slice.call(document.querySelectorAll('.chip'));
+    var spotTrips = Array.prototype.slice.call(document.querySelectorAll('.trip'));
+    var yearHeads = Array.prototype.slice.call(document.querySelectorAll('.year-head'));
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.ft'));
+    var yearButtons = Array.prototype.slice.call(document.querySelectorAll('.fy'));
+    var type = 'all', kw = '', year = 'all';
+
+    function refreshCounts(){
+      var map = {};
+      chips.forEach(function(c){ var t=c.getAttribute('data-type'); map[t]=(map[t]||0)+1; });
+      buttons.forEach(function(b){
+        var t=b.getAttribute('data-t'), i=b.querySelector('i');
+        if(i) i.textContent=t==='all'?chips.length:(map[t]||0);
+      });
+    }
+
+    function apply(){
+      var visible=0;
+      spotTrips.forEach(function(t){
+        var m=t.className.match(/\by(\d{2})\b/), tripYear=m?m[1]:'';
+        var yearOK=year==='all'||tripYear===year.slice(-2);
+        t.classList.toggle('year-section-hide',!yearOK);
+        var visibleInTrip=0;
+        t.querySelectorAll('.chip').forEach(function(c){
+          var okT=type==='all'||c.getAttribute('data-type')===type;
+          var okK=!kw||c.textContent.indexOf(kw)!==-1;
+          var show=yearOK&&okT&&okK;
+          c.classList.toggle('hide',!show);
+          c.classList.toggle('hit',show&&!!kw);
+          if(show){visible++;visibleInTrip++;}
+        });
+        t.classList.toggle('no-match',yearOK&&!visibleInTrip);
+      });
+      yearHeads.forEach(function(h){
+        var m=h.textContent.match(/\d{4}/), y=m?m[0]:'';
+        h.classList.toggle('year-section-hide',year!=='all'&&y!==year);
+      });
+      countEl.textContent=visible+' / '+chips.length;
+      updateMapYear();
+    }
+
+    function updateMapYear(){
+      document.querySelectorAll('.node[data-trip], .routes [data-trip]').forEach(function(el){
+        var id=el.getAttribute('data-trip');
+        var trip=document.querySelector('.trip[data-trip="'+id+'"]');
+        var ok=year==='all'||(trip&&trip.className.indexOf('y'+year.slice(-2))!==-1);
+        el.classList.toggle('map-year-hide',!ok);
+      });
+    }
+
+    buttons.forEach(function(b){ b.addEventListener('click',function(){
+      buttons.forEach(function(x){x.classList.remove('active');}); b.classList.add('active');
+      type=b.getAttribute('data-t'); apply();
+    }); });
+    yearButtons.forEach(function(b){ b.addEventListener('click',function(){
+      yearButtons.forEach(function(x){x.classList.remove('active');}); b.classList.add('active');
+      year=b.getAttribute('data-year');
+      document.querySelectorAll('#mapYearFilters .myf').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-year')===year);});
+      apply();
+    }); });
+    input.addEventListener('input',function(){kw=input.value.trim();apply();});
+    document.querySelectorAll('#mapYearFilters .myf').forEach(function(b){
+      b.addEventListener('click',function(){
+        var y=b.getAttribute('data-year');
+        year=y;
+        document.querySelectorAll('#yearFilters .fy, #mapYearFilters .myf').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-year')===y);});
+        apply();
+      });
+    });
+    refreshCounts(); apply();
+  })();
+
+  /* ===== 地图 ↔ 时间轴双向联动 ===== */
+  (function(){
+    var mapNodes = Array.prototype.slice.call(document.querySelectorAll('.node[data-trip]'));
+    var routes = Array.prototype.slice.call(document.querySelectorAll('.routes [data-trip]'));
+    var trips = Array.prototype.slice.call(document.querySelectorAll('.trip[data-trip]'));
+    var tl = document.querySelector('.tl-panel');
+    var activeTrip = null;
+    var clearTimer = null;
+
+    function setLink(id){
+      activeTrip = String(id);
+      mapNodes.forEach(function(n){
+        n.classList.toggle('active', n.getAttribute('data-trip') === activeTrip);
+      });
+      routes.forEach(function(r){
+        r.classList.toggle('active-route', r.getAttribute('data-trip') === activeTrip);
+      });
+      trips.forEach(function(t){
+        t.classList.toggle('link-active', t.getAttribute('data-trip') === activeTrip);
+      });
+    }
+
+    function clearLink(){
+      activeTrip = null;
+      mapNodes.forEach(function(n){ n.classList.remove('active'); });
+      routes.forEach(function(r){ r.classList.remove('active-route'); });
+      trips.forEach(function(t){ t.classList.remove('link-active'); });
+    }
+
+    function pulse(id){
+      clearTimeout(clearTimer);
+      setLink(id);
+      clearTimer=setTimeout(clearLink, 1800);
+    }
+
+    function scrollToTrip(id){
+      var target=trips.find(function(t){ return t.getAttribute('data-trip') === String(id) && !t.classList.contains('year-section-hide'); });
+      if(!target) return;
+      target.scrollIntoView({behavior:'smooth', block:'center'});
+      setLink(id);
+      target.classList.add('link-active');
+    }
+
+    mapNodes.forEach(function(n){
+      n.addEventListener('mouseenter', function(){ setLink(n.getAttribute('data-trip')); });
+      n.addEventListener('mouseleave', function(){ if(activeTrip===n.getAttribute('data-trip')) clearLink(); });
+      n.addEventListener('click', function(){ scrollToTrip(n.getAttribute('data-trip')); });
+    });
+
+    routes.forEach(function(r){
+      r.addEventListener('mouseenter', function(){ setLink(r.getAttribute('data-trip')); });
+      r.addEventListener('mouseleave', function(){ clearLink(); });
+      r.addEventListener('click', function(){ scrollToTrip(r.getAttribute('data-trip')); });
+    });
+
+    trips.forEach(function(t){
+      var id=t.getAttribute('data-trip');
+      t.addEventListener('mouseenter', function(){ setLink(id); });
+      t.addEventListener('mouseleave', function(){ clearLink(); });
+      t.addEventListener('click', function(e){
+        if(e.target.closest('.chip')) return;
+        setLink(id);
+      });
+    });
+  })();
+
+  /* ===== 统计图表 ===== */
+  (function(){
+    if(!window.echarts) return;           // CDN 未加载时保留降级提示
+    document.querySelectorAll('.chart-fallback').forEach(function(f){ f.style.display='none'; });
+
+    var tip = {
+      trigger:'axis', triggerOn:'click', renderMode:'richText', confine:true,
+      backgroundColor:'rgba(16,21,28,.95)', borderColor:'rgba(255,255,255,.14)',
+      textStyle:{ color:'#e6edf3', fontSize:12 }
+    };
+    var tick = { axisLine:{lineStyle:{color:'rgba(255,255,255,.16)'}}, axisTick:{show:false} };
+
+    /* 每年分布：景点数柱状 + 行程次数 */
+    var yearChart = echarts.init(document.getElementById('chartYear'));
+    yearChart.setOption({
+      backgroundColor:'transparent',
+      tooltip: Object.assign({}, tip, {
+        formatter: function(ps){
+          if(!ps || !ps.length) return '';
+          var p = ps[0], tripsMap = {'2024':4,'2025':10,'2026':4};
+          return p.name + ' 年<br><b>' + p.value + '</b> 个景点 · ' + tripsMap[p.name] + ' 次行程';
+        }
+      }),
+      grid:{ left:8, right:10, top:26, bottom:2, containLabel:true },
+      xAxis: Object.assign({ type:'category', data:['2024','2025','2026'],
+        axisLabel:{ color:'#8b949e', fontSize:11 } }, tick),
+      yAxis: { type:'value', name:'景点数', nameTextStyle:{ color:'#7d8590', fontSize:10 },
+        axisLabel:{ color:'#8b949e', fontSize:10 },
+        splitLine:{ lineStyle:{ color:'rgba(255,255,255,.06)' } } },
+      series:[{
+        type:'bar', barWidth:38,
+        label:{ show:true, position:'top', color:'#e6edf3', fontSize:11.5, fontWeight:700 },
+        data:[
+          { value:50, itemStyle:{ color:'#f0883e', borderRadius:[6,6,0,0] } },
+          { value:110, itemStyle:{ color:'#58a6ff', borderRadius:[6,6,0,0] } },
+          { value:40, itemStyle:{ color:'#3fb950', borderRadius:[6,6,0,0] } }
+        ]
+      }]
+    });
+
+    /* 省份分布：横向柱状，按景点数降序（y 轴倒序使最大者置顶） */
+    var provChart = echarts.init(document.getElementById('chartProv'));
+    provChart.setOption({
+      backgroundColor:'transparent',
+      tooltip: Object.assign({}, tip, { axisPointer:{ type:'shadow' } }),
+      grid:{ left:8, right:36, top:6, bottom:2, containLabel:true },
+      xAxis: { type:'value', axisLabel:{ color:'#8b949e', fontSize:10 },
+        splitLine:{ lineStyle:{ color:'rgba(255,255,255,.06)' } } },
+      yAxis: Object.assign({ type:'category',
+        data:['上海','北京','山西','山东','辽宁','江苏','湖北','天津','湖南','河南','河北'],
+        axisLabel:{ color:'#a9b4c0', fontSize:11 } }, tick),
+      series:[{
+        type:'bar', barWidth:9,
+        label:{ show:true, position:'right', color:'#8b949e', fontSize:10 },
+        itemStyle:{ borderRadius:[0,5,5,0],
+          color: new echarts.graphic.LinearGradient(0,0,1,0,[
+            { offset:0, color:'rgba(88,166,255,.22)' },
+            { offset:1, color:'#58a6ff' }
+          ]) },
+        data:[7,7,8,15,15,16,17,20,22,36,37]
+      }]
+    });
+
+    window.addEventListener('resize', function(){ yearChart.resize(); provChart.resize(); });
+  })();
+</script>
+</body>
+</html>
